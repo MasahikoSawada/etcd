@@ -300,6 +300,35 @@ IRRCompaction, IRRLeaseGrant, IRRLeaseRevoke, IRRLeaseCheckpoint`, et)
 	return filters
 }
 
+func printEntry(ent raftpb.Entry, typ string, streamdecoder string, stdin Os.io) {
+	printerMap := map[string]EntryPrinter{"InternalRaftRequest": printInternalRaftRequest,
+		"Request":       printRequest,
+		"ConfigChange":  printConfChange,
+		"UnknownNormal": printUnknownNormal}
+
+	printer := printerMap[typ]
+	printer(ent)
+
+	if streamdecoder == "" {
+		fmt.Println()
+		return
+	}
+
+	// if decoder is set, pass the e.Data to stdin and read the stdout from decoder
+	io.WriteString(stdin, hex.EncodeToString(ent.Data))
+	io.WriteString(stdin, "\n")
+	outputReader := bufio.NewReader(stdout)
+	decoderoutput, currerr := outputReader.ReadString('\n')
+	if currerr != nil {
+		fmt.Println(currerr)
+		return
+	}
+
+	decoder_status, decoded_data := parseDecoderOutput(decoderoutput)
+
+	fmt.Printf("\t%s\t%s", decoder_status, decoded_data)
+}
+
 //  listEntriesType filters and prints entries based on the entry-type flag,
 func listEntriesType(entrytype string, streamdecoder string, ents []raftpb.Entry) {
 	entryFilters := evaluateEntrytypeFlag(entrytype)
@@ -339,26 +368,7 @@ func listEntriesType(entrytype string, streamdecoder string, ents []raftpb.Entry
 			}
 		}
 		if passed {
-			printer := printerMap[currtype]
-			printer(e)
-			if streamdecoder == "" {
-				fmt.Println()
-				continue
-			}
-
-			// if decoder is set, pass the e.Data to stdin and read the stdout from decoder
-			io.WriteString(stdin, hex.EncodeToString(e.Data))
-			io.WriteString(stdin, "\n")
-			outputReader := bufio.NewReader(stdout)
-			decoderoutput, currerr := outputReader.ReadString('\n')
-			if currerr != nil {
-				fmt.Println(currerr)
-				return
-			}
-
-			decoder_status, decoded_data := parseDecoderOutput(decoderoutput)
-
-			fmt.Printf("\t%s\t%s", decoder_status, decoded_data)
+			printEntry(e, currtype, streamdecoder)
 		}
 	}
 
